@@ -130,9 +130,19 @@ def report(rate):
     rows = [r for r in rows if start <= r[0] <= end]
     if len(rows) < 2:
         sys.exit("Not enough samples yet - wait a couple of minutes.")
-    # psys is bogus on some chips (this i5-6200U): it can't legitimately be below the CPU package.
-    use_psys = all(r[1] >= 0 for r in rows) and (
-        (rows[-1][1] - rows[0][1]) % mx >= (rows[-1][2] - rows[0][2]) % mx)
+    def delta(a, b, i):
+        d = b[i] - a[i]
+        return d + mx if d < 0 else d  # counter wrapped (or reset at boot)
+
+    # psys is bogus on some chips (this i5-6200U reads ~30x below the CPU package), and the platform
+    # can't legitimately draw less than its own CPU. Compare the two over every counted interval,
+    # not first-vs-last sample, so a reboot that resets the counters mid-window can't fool it.
+    psys_sum = pkg_sum = 0
+    for a, b in zip(rows, rows[1:]):
+        if 0 < b[0] - a[0] <= MAX_GAP:
+            psys_sum += delta(a, b, 1)
+            pkg_sum += delta(a, b, 2)
+    use_psys = all(r[1] >= 0 for r in rows) and psys_sum >= pkg_sum
     idx = 1 if use_psys else 2
     days, tracked, gap = {}, 0, 0
     bat_j = pkg_j = bat_s = 0  # intervals where the battery is discharging = true whole-laptop draw
@@ -158,7 +168,13 @@ def report(rate):
         sys.exit("Not enough time between samples yet - try again in a minute.")
     total_j = sum(j for j, _ in days.values())
     kwh = total_j / 3.6e6
-    print(f"Source: {'psys (whole platform)' if use_psys else 'package (CPU only)'}")
+    if use_psys:
+        print("Source: psys (whole platform)")
+    elif all(r[1] >= 0 for r in rows):
+        print(f"Source: package (CPU only) - psys read {psys_sum / max(pkg_sum, 1):.2f}x the CPU, which is "
+              "impossible, so it is ignored")
+    else:
+        print("Source: package (CPU only) - no psys counter on this machine")
     print(f"Window: {dt.datetime.fromtimestamp(start):%Y-%m-%d %H:%M} -> {dt.datetime.fromtimestamp(end):%Y-%m-%d %H:%M}\n")
     print(f"{'Date':<12}{'kWh':>8}{'avg W':>8}{'hours':>7}")
     for day in sorted(days):

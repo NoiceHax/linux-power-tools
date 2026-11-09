@@ -49,6 +49,9 @@ sudo ./powertrack/powertrack.py uninstall          # stop sampling, keep the dat
 - **Reads Intel RAPL counters** in `/sys/class/powercap`: `psys` for the whole platform (CPU, GPU,
   memory, chipset) where the hardware has it, and `pkg` for the CPU package. A systemd timer takes
   one sample a minute into a CSV under `/var/lib/powertrack`.
+- **Ignores a broken `psys`.** Some chips report a `psys` that reads below the CPU package alone (on
+  my i5-6200U it's about 30x too low), which is impossible for the whole platform. The report
+  compares both counters over every interval and falls back to `pkg` when that happens, saying so.
 - **Handles counter wraparound** using each counter's `max_energy_range_uj`.
 - **Doesn't count time while the machine is off.** A gap longer than 10 minutes between samples (suspend,
   shutdown) is reported as unmonitored instead of being treated as zero or interpolated.
